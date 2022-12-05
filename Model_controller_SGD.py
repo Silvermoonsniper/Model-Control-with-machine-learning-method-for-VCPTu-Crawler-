@@ -101,10 +101,10 @@ class Model_control_SGD():
 #desired distance
 
     def desired_dist(self,counter,smoothed_dist,total_shift, step_startcontrol, op_amplitude,op_freq, sampling_freq, op_back_vel):
-   
-    
-        desired_distance = smoothed_dist[step_startcontrol] + op_amplitude*np.sin(2*np.pi*(op_freq*counter/sampling_freq) ) + op_back_vel* counter
-        return desired_distance
+   #calculate desired distance profile starting from the point when we switch to the model controller
+       desired_distance = smoothed_dist[step_startcontrol] + op_amplitude*np.sin(2*np.pi*(op_freq*counter/sampling_freq) ) + op_back_vel* (op_freq*counter/sampling_freq)
+       counter +=1
+       return desired_distance
 
 # SGD optimizer for linear model
 
