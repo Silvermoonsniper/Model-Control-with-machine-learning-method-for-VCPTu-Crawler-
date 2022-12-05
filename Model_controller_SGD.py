@@ -38,21 +38,25 @@ class Model_control_SGD():
         
         self.op_back_vel = 0                                   #background velocity
         
-        self.interval_smooth_reg = 12
+        self.interval_smooth_reg = 12                          # number of datapoints used for smoothing distance data
         
         self.interva_p = 40                                    #points interval for velocity calculation
         
         self.start_step_data = 4070                            #the time step to extract subdata from whole dataset
          
         self.velocity_data  = -10*(32768 - np.array(raw_measurementdata['Stellwert_Ventil'][self.start_step_data+self.total_shift:self.start_step_data+self.iteration+self.total_shift]))/32768  # get control data 
-        print(self.velocity_data)
+       
         self.control_data = 1*np.array(raw_measurementdata['vel_local'][self.start_step_data:self.start_step_data+self.iteration])                                      # get velocity data 
         
         self.measured_dist = np.array(raw_measurementdata['IST_weg_mm'][self.start_step_data:self.start_step_data+self.iteration])     # smoothed distance 
 
         
         self.smoothed_dist = np.array(raw_measurementdata['smoothed_dist'][self.start_step_data:self.start_step_data+self.iteration])     # smoothed distance 
-#newton method to obtain numerical solution of model control output
+
+        
+        
+        
+ #newton method to obtain numerical solution of model control output
 
 
     def newton_control_solver(self,starting_point,desired_vel,parameter_vector):
@@ -117,13 +121,11 @@ class Model_control_SGD():
 
     
 #calculate control output from model
-#design matrix
-#    design_matrix = np.array([local_vel**3,local_vel**2,local_vel,1]).flatten()
 
         model_regout = parameter_vector[0]*local_vel**3 + parameter_vector[1]*local_vel**2 + parameter_vector[2]*local_vel + parameter_vector[3]
     
-   # print(model_regout,new)
- #calculate error 
+  
+ #calculate absolute error 
         error = abs((model_regout - current_control))
     
         return parameter_vector,error,model_regout
