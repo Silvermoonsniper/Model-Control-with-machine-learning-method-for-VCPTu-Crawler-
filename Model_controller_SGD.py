@@ -2,6 +2,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 # class for model controller with SGD
+# real position of hydraulic piston is modelled with a polynomial model plus AWGN
+
+# user could define desired distance profile with certain vibration amplitude, vibration frequency and background velocity at the control stage
+# this is used to simulated CPT testing in MARCC system at MARUM.
+
 
 class Model_control_SGD(): 
     
@@ -77,7 +82,7 @@ class Model_control_SGD():
             numerical_error = abs(func_val)
         
             iteration += 1
-     #   print(iteration,numerical_error)
+
             if (numerical_error <= 0.001):
            
                 newcontrol = control
@@ -311,7 +316,7 @@ class Model_control_SGD():
                         m,b = self.estimate_coef(np.arange(interval_smooth_reg),measured_dist[j-(interval_smooth_reg-1):j+1] )
                       
                         smoothed_dist[j+1] = b
-                  #   print(smoothed_dist[j],position_update,polynomial_model_control)
+                 
             else:
                 polynomial_model_control = local_vel
                           
