@@ -2,11 +2,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 # class for model controller with SGD
-# real position of hydraulic piston is modelled with a polynomial model plus AWGN
-
-# user could define desired distance profile with certain vibration amplitude, vibration frequency and background velocity at the control stage
-# this is used to simulated CPT testing in MARCC system at MARUM.
-
 
 class Model_control_SGD(): 
     
@@ -16,12 +11,11 @@ class Model_control_SGD():
        
 
          #initialize parameters
-        self.initial_w = [ 0.00342657, -0.00053593,  0.00586184, -0.00018193]
-        #[ 0,0,2.76566664,0.33001263]          #initial parameters for polynomial model
+        self.initial_w = [ 0,0,2.76566664,0.33001263]          #initial parameters for polynomial model
         
-        self.learning_rate = 0.000034                              # learning rate for SGD update
+        self.learning_rate = 0.34                              # learning rate for SGD update
         
-        self.iteration = 1680                                   # number of iteration for running algorithm
+        self.iteration = 950                                   # number of iteration for running algorithm
         
         self.batchsize = 0                 
         
@@ -29,13 +23,11 @@ class Model_control_SGD():
         
         self.predicted_distance = 0                            #initial predicted distance
         
-        self.counter = 0 
+        self.counter = 0                 
         
-        self.system_SNR = 5                                   #system SNR for hydraulic piston system (dB)
+        self.step_startcontrol = 800                           #step to start the control
         
-        self.step_startcontrol = 320                           #step to start the control
-        
-        self.op_amplitude  = 3                                 # vibration amplitude 
+        self.op_amplitude  = 1                                 # vibration amplitude 
         
         self.op_freq = 10                                      # vibration frequency
         
@@ -43,25 +35,14 @@ class Model_control_SGD():
         
         self.op_back_vel = 0                                   #background velocity
         
-        self.interval_smooth_reg = 12                          # number of datapoints used for smoothing distance data
-        
-        self.interva_p = 40                                    #points interval for velocity calculation
-        
-        self.start_step_data = 4070                            #the time step to extract subdata from whole dataset
+        start_step_data = 4070                            #the time step to extract subdata from whole dataset
          
-        self.velocity_data  = -10*(32768 - np.array(raw_measurementdata['Stellwert_Ventil'][self.start_step_data+self.total_shift:self.start_step_data+self.iteration+self.total_shift]))/32768  # get control data 
-       
-        self.control_data = 1*np.array(raw_measurementdata['vel_local'][self.start_step_data:self.start_step_data+self.iteration])                                      # get velocity data 
+        velocity_data  = 1e-5*np.array(raw_measurementdata['Stellwert_Ventil'][start_step_data+total_shift:start_step_data+iteration+total_shift])  # get control data 
         
-        self.measured_dist = np.array(raw_measurementdata['IST_weg_mm'][self.start_step_data:self.start_step_data+self.iteration])     # smoothed distance 
-
-        
-        self.smoothed_dist = np.array(raw_measurementdata['smoothed_dist'][self.start_step_data:self.start_step_data+self.iteration])     # smoothed distance 
-
-        
-        
-        
- #newton method to obtain numerical solution of model control output
+        control_data = 1*np.array(raw_measurementdata['vel_local'][start_step_data:start_step_data+iteration])                                      # get velocity data 
+        # smoothed distance 
+        smoothed_dist = np.array(raw_measurementdata['smoothed_dist'][start_step_data:start_step_data+iteration])
+#newton method to obtain numerical solution of model control output
 
 
     def newton_control_solver(self,starting_point,desired_vel,parameter_vector):
@@ -72,7 +53,7 @@ class Model_control_SGD():
         func_val = parameter_vector[0]*control**3 + parameter_vector[1]*control**2 + parameter_vector[2]*control + parameter_vector[3]
  
         numerical_error = abs(func_val-desired_vel)
-        for j in range(1000): 
+        for j in range(1000):
     #function value
             func_val = parameter_vector[0]*control**3 + parameter_vector[1]*control**2 + parameter_vector[2]*control - desired_vel + parameter_vector[3]
      #gradient val
@@ -82,8 +63,8 @@ class Model_control_SGD():
             numerical_error = abs(func_val)
         
             iteration += 1
-
-            if (numerical_error <= 0.001):
+     #   print(iteration,numerical_error)
+            if (numerical_error <= 0.00001):
            
                 newcontrol = control
           
@@ -101,10 +82,10 @@ class Model_control_SGD():
 #desired distance
 
     def desired_dist(self,counter,smoothed_dist,total_shift, step_startcontrol, op_amplitude,op_freq, sampling_freq, op_back_vel):
-   #calculate desired distance profile starting from the point when we switch to the model controller
-       desired_distance = smoothed_dist[step_startcontrol] + op_amplitude*np.sin(2*np.pi*(op_freq*counter/sampling_freq) ) + op_back_vel* (op_freq*counter/sampling_freq)
-       counter +=1
-       return desired_distance
+   
+    
+        desired_distance = smoothed_dist[step_startcontrol] + op_amplitude*np.sin(2*np.pi*(op_freq*counter/sampling_freq) ) + op_back_vel* counter
+        return desired_distance
 
 # SGD optimizer for linear model
 
@@ -117,8 +98,8 @@ class Model_control_SGD():
     
        #calculate gradient of error function
 
-        gradient_subterm_w3 = local_vel*(w_1*local_vel**3 + w_2*local_vel**2 + w_3*local_vel +w_4 - current_control)
-        gradient_subterm_w4 = w_1*local_vel**3 + w_2*local_vel**2 + w_3*local_vel +w_4 - current_control
+        gradient_subterm_w3 = local_vel*(w_3*local_vel +w_4 - current_control)
+        gradient_subterm_w4 =  w_3*local_vel +w_4 - current_control
   
        #update parameter via SGD
         parameter_vector[2] = parameter_vector[2] - 2*learning_rate*gradient_subterm_w3
@@ -126,11 +107,13 @@ class Model_control_SGD():
 
     
 #calculate control output from model
+#design matrix
+#    design_matrix = np.array([local_vel**3,local_vel**2,local_vel,1]).flatten()
 
         model_regout = parameter_vector[0]*local_vel**3 + parameter_vector[1]*local_vel**2 + parameter_vector[2]*local_vel + parameter_vector[3]
     
-  
- #calculate absolute error 
+   # print(model_regout,new)
+ #calculate error 
         error = abs((model_regout - current_control))
     
         return parameter_vector,error,model_regout
@@ -172,43 +155,7 @@ class Model_control_SGD():
     
         return parameter_vector,error,model_regout
 
-    
-    #calculate linear regression coefficient
-    def estimate_coef(self,x, y):
-    
-    # number of observations/points
-        n = np.size(x)
-   
-    # mean of x and y vector
-        m_x = np.mean(x)
-        m_y = np.mean(y)
- 
-    # calculating cross-deviation and deviation about x
-        SS_xy = np.sum(y*x) - n*m_y*m_x
-        SS_xx = np.sum(x*x) - n*m_x*m_x
- 
-    # calculating regression coefficients
-        b_1 = SS_xy / SS_xx
-        b_0 = m_y - b_1*m_x
-
-        return (b_1, b_0)
-    #function to calculate movement of piston
-    def movement_piston_simulation(self,interva_p,polynomial_model_regout_array,polynomial_model_control,parameter_vector,system_SNR):
-        
-        
-        
-
-        cleanmovement_simulation =  (parameter_vector[0]*polynomial_model_control**3 + parameter_vector[1]*polynomial_model_control**2 +parameter_vector[2]*polynomial_model_control + parameter_vector[3])
-     
-    #calculate noise variance for AWGN 
-        noise_var =  np.var(np.array(polynomial_model_regout_array).flatten())/(10**((system_SNR / 10)))
-    #calculate noisy simulated movement because of generated controller output from model control
-        noisy_movement = np.random.normal(0, np.sqrt(noise_var), 1) + cleanmovement_simulation
-        
-        
-        
-        return noisy_movement
-    def data_fitting_model_main(self,interval_smooth_reg,total_shift,measured_dist,system_SNR,interva_p,counter,step_startcontrol,op_amplitude,op_freq, sampling_freq, op_back_vel, predicted_distance,batchsize,initial_w,iteration,learning_rate,control_data,velocity_data,smoothed_dist):
+    def data_fitting_model_main(self,counter,step_startcontrol,op_amplitude,op_freq, sampling_freq, op_back_vel, predicted_distance,batchsize,initial_w,iteration,learning_rate,control_data,velocity_data,smoothed_dist):
     
     
         w1_array = []
@@ -224,107 +171,68 @@ class Model_control_SGD():
         current_control_array = []
         vel_array = []
         polynomial_model_regout_array = []
-        
-        real_distancearray = []
-        
-        measured_distarray = []
-        
-        linearsmoothed_dist = smoothed_dist
-        
         for j in range(iteration-batchsize):
             if (j == 0):
                 parameter_vector = initial_w
                 linearparameter_vector = initial_w 
-                
-            # at training stage
-            if (j <= step_startcontrol):
-                current_control = control_data[j]
-                local_vel = velocity_data[j]
-                real_distancearray.append(smoothed_dist[j])
-            # at control stage
-            else:
-                #calculate current velocity
-                current_control = (position_update - smoothed_dist[j-(interva_p)])/interva_p
-               
-                
-              #rem assign control output with generated control output from polynomial model
-                local_vel = polynomial_model_control
-                
-                real_distancearray.append(position_update )
-                 
+            current_control = control_data[j]
+            local_vel = velocity_data[j]
+        
+        
+       
             
         
         
         # calculate desired dist
             if (j >= step_startcontrol):
-                desired_distance = self.desired_dist(counter,smoothed_dist,total_shift, step_startcontrol, op_amplitude,op_freq, sampling_freq, op_back_vel)
+                desired_distance = desired_dist(counter,smoothed_dist,total_shift, step_startcontrol, op_amplitude,op_freq, sampling_freq, op_back_vel)
                 counter = counter + 1 
             else:
                 desired_distance = smoothed_dist[j]
             
         #calculate predicted distance   
-            newtotal_shift = int(0.5*total_shift)-6
+            total_shift = 37
             if (j > total_shift):
-                predicted_velarray = np.array(model_regout_array[j-newtotal_shift:j]).flatten()
-                predicted_distance = self.predicted_controlleroutput(smoothed_dist,newtotal_shift, j,predicted_velarray)
+                predicted_velarray = np.array(model_regout_array[j-total_shift:j]).flatten()
+                predicted_distance = predicted_controlleroutput(smoothed_dist,total_shift, j,predicted_velarray)
             #calculate velocity deviation
       
-                vel_devi = (predicted_distance- smoothed_dist[j- (newtotal_shift)]) / 300
+                vel_devi = (predicted_distance- smoothed_dist[j- (total_shift)]) / 82
            
             if (j >= step_startcontrol):
             #calculate desired velocity
-                desired_vel = (desired_distance - smoothed_dist[j]) / interva_p
-         
+                desired_vel = (desired_distance - smoothed_dist[j]) / 40
+          #  current_control = desired_vel 
             #calculate model contro output
            
                 new_model_control = (desired_vel + vel_devi - linearparameter_vector[3]) /linearparameter_vector[2]
             
-             
-          
-                
-                
             else:
                 if (j > total_shift):
-                    new_model_control = (control_data[j] + vel_devi - linearparameter_vector[3]) /linearparameter_vector[2]
+                    new_model_control = (current_control + vel_devi - linearparameter_vector[3]) /linearparameter_vector[2]
                 else:
-                    new_model_control = (control_data[j]  - linearparameter_vector[3]) /linearparameter_vector[2]
+                    new_model_control = (current_control  - linearparameter_vector[3]) /linearparameter_vector[2]
                     
         # parameters update vias SGD         
-         #   if (j < step_startcontrol):
-            parameter_vector,error,model_regout = self.SGD_optimizer(learning_rate,batchsize,local_vel,parameter_vector,current_control)
-    
+        
+            parameter_vector,error,model_regout = SGD_optimizer(learning_rate,batchsize,local_vel,parameter_vector,current_control)
         # parameters update vias SGD     
         
-            linearparameter_vector,linearerror,linearmodel_regout = self.LinearSGD_optimizer(learning_rate,batchsize,local_vel,linearparameter_vector,current_control)
+            linearparameter_vector,error,linearmodel_regout = LinearSGD_optimizer(learning_rate,batchsize,local_vel,linearparameter_vector,current_control)
         
         #calculate numeric modelled controller output from polynomial model
       #  print(parameter_vector)
             if (j > total_shift):
                 if (j < step_startcontrol):
-                    polynomial_model_control = self.newton_control_solver(polynomial_model_control,current_control,parameter_vector)
+                    polynomial_model_control = newton_control_solver(2,current_control,parameter_vector)
                 else:
-                     polynomial_model_control = self.newton_control_solver(polynomial_model_control,desired_vel+ vel_devi,parameter_vector)
-                      #calculate simulated noisy movement of piston from generated controller output
-            
-                     noisy_movement = self.movement_piston_simulation(interva_p,current_control_array,polynomial_model_control,parameter_vector,system_SNR)
-            #update position of piston
-                     position_update = measured_dist[j] + noisy_movement
-                     if (j+1 < iteration-batchsize ):
-                        measured_dist[j+1] = measured_dist[j] + noisy_movement
-                        #calculate real smoothed distance with linear regression
-                        
-                        m,b = self.estimate_coef(np.arange(interval_smooth_reg),measured_dist[j-(interval_smooth_reg-1):j+1] )
-                      
-                        smoothed_dist[j+1] = b
-                 
+                     polynomial_model_control = newton_control_solver(2,desired_vel+ vel_devi,parameter_vector)
             else:
                 polynomial_model_control = local_vel
-                          
-                
             polynomial_model_regout_array.append(polynomial_model_control)
         
         
-            
+        
         #array append
             w1_array.append(parameter_vector[0])
             w2_array.append(parameter_vector[1])
@@ -334,7 +242,6 @@ class Model_control_SGD():
             error_array.append(error)
             new_model_controlarray.append(new_model_control)
             predicted_distancearray.append(predicted_distance)
-            measured_distarray.append(measured_dist[j])
             current_control_array.append(current_control)
         
     
@@ -347,10 +254,9 @@ class Model_control_SGD():
     
         plt.plot(np.arange(iteration)[100::],np.array(predicted_distancearray)[100::].flatten())
         plt.plot(np.arange(iteration)[100:int(0.8*iteration)],np.array(predicted_distancearray)[100+total_shift:int(0.8*iteration)+total_shift].flatten())
-        plt.plot(np.arange(iteration),np.array(real_distancearray).flatten())
-        plt.plot(np.arange(iteration),np.array(measured_distarray).flatten())
+        plt.plot(np.arange(iteration),np.array(smoothed_dist).flatten())
         plt.plot(np.arange(iteration),np.array(desired_distance_array).flatten())
-        plt.legend(['predicted distance','shifted prediction','smoothed','measured','desired'])
+        plt.legend(['predicted distance','shifted prediction','smoothed'])
         plt.title('Distance graph with polynomial model')
         plt.show()
     #plot modelled control output and current control output
@@ -362,10 +268,10 @@ class Model_control_SGD():
         plt.legend(['real','model'])
         plt.show()
     
-        plt.plot(np.arange(iteration-batchsize)[total_shift::],(32768+3276.8*np.array(vel_array).flatten()[total_shift::]))
+        plt.plot(np.arange(iteration-batchsize)[total_shift::],1e5*np.array(vel_array).flatten()[total_shift::])
    
-        plt.plot(np.arange(iteration-batchsize)[total_shift::],(32768+3276.8*np.array(new_model_controlarray).flatten()[total_shift::]))
-        plt.plot(np.arange(iteration-batchsize)[total_shift::],(32768+3276.8*np.array(polynomial_model_regout_array).flatten()[total_shift::]))
+        plt.plot(np.arange(iteration-batchsize)[total_shift::],1e5*np.array(new_model_controlarray).flatten()[total_shift::])
+        plt.plot(np.arange(iteration-batchsize)[total_shift::],1e5*np.array(polynomial_model_regout_array).flatten()[total_shift::])
         plt.xlabel('iteration')
         plt.legend(['real','linear model','polynomial model'])
         plt.title('The comparison between real and estimated control output after starting model control')
@@ -402,12 +308,10 @@ if  __name__ == '__main__':
         R = Model_control_SGD(raw_measurementdata)
     
     #start training with data
-        R.data_fitting_model_main(R.interval_smooth_reg,R.total_shift,R.measured_dist,R.system_SNR,R.interva_p,R.counter,R.step_startcontrol,R.op_amplitude,R.op_freq, R.sampling_freq, R.op_back_vel, R.predicted_distance,R.batchsize,R.initial_w,R.iteration,R.learning_rate,R.control_data,R.velocity_data,R.smoothed_dist)
+        R.data_fitting_model_main(counter,step_startcontrol,op_amplitude,op_freq, sampling_freq, op_back_vel, predicted_distance,batchsize,initial_w,iteration,learning_rate,control_data,velocity_data,smoothed_dist)
     
     
 
-    
-    
     
     
     
